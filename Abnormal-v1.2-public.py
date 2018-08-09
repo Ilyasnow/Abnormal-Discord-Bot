@@ -1,4 +1,5 @@
 import discord
+import os
 from datetime import datetime
 from threading import Timer
 from threading import Thread
