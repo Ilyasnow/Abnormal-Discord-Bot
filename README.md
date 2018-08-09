@@ -27,7 +27,7 @@ And only in console:
 - Oversized images
 - Discord invites
 
-##What we still need:
+## What we still need:
 - Image caching
 - Derpibooru integration
 - EQD integration
