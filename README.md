@@ -18,9 +18,12 @@ To stop it, issue a stop command by pressing `Ctrl+C` in the cmd window.
 
 - Message deletion
 - **Message edit**
+- Image caching (discord's native)
 
 - Ban logging
 - Ban reason
+- Userinfo command
+- Serverinfo command
 
 And only in console:
 - Use of banned words
@@ -28,10 +31,9 @@ And only in console:
 - Discord invites
 
 ## What we still need:
-- Image caching
+- Image caching (saving on server?)
 - Derpibooru integration
 - EQD integration
 - Past names command
-- Userinfo command
 
 - Music stuff
