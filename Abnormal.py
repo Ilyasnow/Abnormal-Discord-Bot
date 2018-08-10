@@ -1,8 +1,7 @@
 import discord
-import os
+import os 
 from datetime import datetime
-from threading import Timer
-from threading import Thread
+from threading import Timer, Thread
 #from derpibooru import Search, sort
 import time
 import winsound
@@ -14,11 +13,14 @@ timers = [] #list of Timers for raid detection
 timers_q = [] #list of short Timers for raid detection
 joined_users = [] #debug
 
-authorized_servers = ['87583189161226240'] #EQD
-commands_channels = [''] #channel ID for `reason and `ponyr
-authorized_channels = [''] #ponyville and #manehattan IDs
-log_channel = '' #log output channel ID
-ban_channel = '' #ban output channel ID
+authorized_servers = ['87583189161226240', #EQD
+                      '475881818755956736',#SCP
+                      '280418753236172811']#ASS
+commands_channels = ['280418753236172811', #ASS #channel ID for `reason and `ponyr
+                     '477269419765006345'] #SCP
+authorized_channels = ['280418753236172811']#ASS #ponyville and #manehattan IDs
+log_channel = '477236874948116481' #SCP #log output channel ID
+ban_channel = '477236874948116481' #SCP #ban output channel ID
 img_filter = ['.jpg', '.jpeg', '.png', '.gif', 'imgur.com', 'deviantart.com',
               'instagram.com', 'youtube.com', 'twitter.com', 'youtu.be']
 banned_words = ['fag', 'nigg', 'milf',
@@ -41,8 +43,9 @@ async def on_ready():
 async def on_member_join(member):
     if member.server.id in authorized_servers:
         print('({1.hour:02d}:{1.minute:02d}){0.name} joined server {0.server.name}.'.format(member, datetime.now()))
-        em = discord.Embed(title=':white_check_mark:\nJoined', colour=0x40EE40)
+        em = discord.Embed(title=':white_check_mark:\nJoined the server {}'.format(member.server.name), colour=0x40EE40)
         em.set_author(name='User: @{0.name}#{0.discriminator} - {0.id}'.format(member), icon_url=member.avatar_url)
+        em.add_field(name='User created on:', value=member.created_at.strftime("%d %b %Y %H:%M") + ' ({} days ago)'.format((datetime.now() - member.created_at).days))
         em.set_thumbnail(url=member.avatar_url)
         em.set_footer(text='{0} at UTC/GMT+0'.format(datetime.utcnow()))
         await client.send_message(client.get_channel(log_channel), embed=em)
@@ -51,7 +54,7 @@ async def on_member_join(member):
 async def on_member_remove(member):
     if member.server.id in authorized_servers:
         print('({1.hour:02d}:{1.minute:02d}){0.name} left server {0.server.name}.'.format(member, datetime.now()))
-        em = discord.Embed(title=':x:\nLeft', colour=0xEE4040)
+        em = discord.Embed(title=':x:\nLeft the server {}'.format(member.server.name), colour=0xEE4040)
         em.set_author(name='User: @{0.name}#{0.discriminator} - {0.id}'.format(member), icon_url=member.avatar_url)
         em.set_thumbnail(url=member.avatar_url)
         em.set_footer(text='{0} at UTC/GMT+0'.format(datetime.utcnow()))
@@ -61,7 +64,7 @@ async def on_member_remove(member):
 async def on_member_update(member_before, member_after):
     #for i in authorized_servers:
         #if member_before in client.get_server(i).members:
-    if True: #xd
+    if True:
         if member_before.server.id in authorized_servers:
             #print('({1.hour:02d}:{1.minute:02d}){0.name} user update in {0.server.name}.'.format(member_before, datetime.now()))
             if set(member_before.roles) - set(member_after.roles):
@@ -115,13 +118,14 @@ async def on_member_ban(member):
         print('({1.hour:02d}:{1.minute:02d}){0.name} has been banned from {0.server.name}.'.format(member, datetime.now()))
         #ban_messages = yield from client.logs_from(client.get_channel(ban_channel))
         #for i in ban_messages:
+        ban_number = 0
         async for i in client.logs_from(client.get_channel(ban_channel)):
             if (i.content is not None) and (len(i.content.split())>2):
                 if (i.content.split()[1])[0] == '#':
                     ban_number = int(i.content.split()[1][1:-2])
                     break
         ban_message = '**Case #{1}** | Ban :hammer:\n**User:** {0.name}({0.id})\n**Moderator:** \\_\\_\\_\n**Reason**: Type \\`reason {1} <reason> to add a reason.'.format(member, ban_number+1)
-        await client.send_message(client.get_channel(ban_channel), ban_message)
+        await client.send_message(client.get_channel(ban_channel), stop_mass_mentions(ban_message))
         
 @client.event
 async def on_message_delete(message):
@@ -130,19 +134,46 @@ async def on_message_delete(message):
         print('\"{0.author.name}:{0.content}\"'.format(message))
         em = discord.Embed(title=':wastebasket:\nDeleted message from #{0.channel.name}'.format(message),description=':page_facing_up: **Message:**\n{0.content}'.format(message), colour=0xFEF888)
         em.set_author(name='User: @{0.name}#{0.discriminator} - {0.id}'.format(message.author), icon_url=message.author.avatar_url)
+        attachments_text = ''
+        first_attachment = ''
+        if message.attachments:
+            for attachment in message.attachments:
+                attachments_text += '{}[:link:]({}) '.format(attachment.get('filename'), attachment.get('proxy_url'))
+                if not first_attachment:
+                    first_attachment = attachment
+            if attachments_text:
+                em.add_field(name='Attachments:', value=attachments_text)
+                em.set_thumbnail(url=first_attachment.get('proxy_url'))
+        if message.embeds:
+            em.add_field(name='Embeds:', value=':white_check_mark:')
         em.set_footer(text='{0} at UTC/GMT+0'.format(datetime.utcnow()))
         await client.send_message(client.get_channel(log_channel), embed=em)
 
 @client.event
 async def on_message_edit(before, after):
-    if after.channel.id in log_channel:
+    if (after.channel.id in log_channel) or after.author.bot:
+        return
+    if not before.embeds and after.embeds:
         return
     if before.server.id in authorized_servers:
         print('({1.hour:02d}:{1.minute:02d}){0.author.name} edited message from #{0.channel.name} at {0.server.name}.'.format(before, datetime.now()))
-        print('Before:\"{0.author.name}:{0.content}\"\nAfter:\"{1.author.name}:{1.content}\"'.format(before, after))
+        print('Before:\"{0.author.name}:{0.content}\"\n After:\"{1.author.name}:{1.content}\"'.format(before, after))
         em = discord.Embed(title=':pencil2:\nEdited message in #{0.channel.name}'.format(before),description=':page_facing_up: **Message before:**\n{0.content}\n:pencil: **Message after:**\n{1.content}'.format(before, after), colour=0xFEF888)
-        em.set_author(name='User: @{0.name}#{0.discriminator} - {0.id}'.format(before.author), icon_url=before.author.avatar_url)
-        em.set_footer(text='{0} at UTC/GMT+0'.format(datetime.utcnow()))
+        em.set_author(name='User: @{0.name}#{0.discriminator} - {0.id}'.format(before.author), icon_url=before.author.avatar_url) 
+        attachments_text = ''
+        first_attachment = ''
+        #if (type(before.attachments) is dict and type(after.attachments) is dict) or (type(before.attachments) != type(after.attachments)) or (set(before.attachments) != set(after.attachments)):
+        if after.attachments:
+            for attachment in after.attachments:
+                attachments_text += '{}[:link:]({}) '.format(attachment.get('filename'), attachment.get('proxy_url'))
+                if not first_attachment:
+                    first_attachment = attachment
+            if attachments_text:
+                em.add_field(name='Attachments:', value=attachments_text)
+                em.set_thumbnail(url=first_attachment.get('proxy_url'))
+        if before.embeds or after.embeds:
+            em.add_field(name='Embeds:', value=':white_check_mark:')
+        em.set_footer(text='{0} at UTC/GMT+0'.format(datetime.utcnow())) 
         await client.send_message(client.get_channel(log_channel), embed=em)
 
 @client.event
@@ -159,24 +190,68 @@ async def on_message(message):
         if message.server.id in authorized_servers:
             if message.channel.id in commands_channels:
                 if message.content.startswith('`reason '):
-                    reason_message = message.content.split()
+                    command = message.content.split()
                     #ban_messages = yield from client.logs_from(client.get_channel(ban_channel))
                     #for i in ban_messages:
-                    if len(reason_message) > 2:
+                    if len(command) >= 3:
                         async for i in client.logs_from(client.get_channel(ban_channel)):
                             if (i.content is not None) and (len(i.content.split())>2):
                                 if (i.content.split()[1])[0] == '#':
                                     ban_number = int(i.content.split()[1][1:-2])
-                                    if int(reason_message[1]) == ban_number:
+                                    if int(command[1]) == ban_number:
                                         ban_message = i
                                         break
                         ban_message_new = ban_message.content.split('\n')
                         ban_message_new[2] = '**Moderator:** {0.name}({0.id})'.format(message.author)
-                        ban_message_new[3] = '**Reason:** {0}'.format(' '.join(reason_message[2:]))
+                        ban_message_new[3] = '**Reason:** {0}'.format(' '.join(command[2:]))
                         print('({1.hour:02d}:{1.minute:02d}){0.author.name} hast claimed the ban #{2}'.format(message, datetime.now(), ban_number))
-                        print('Case #{0}; Reason: {1}'.format(ban_number, reason_message[2:]))
-                        await client.edit_message(ban_message, '\n'.join(ban_message_new))
-            
+                        print('Case #{0}; Reason: {1}'.format(ban_number, " ".join(command[2:])))
+                        await client.edit_message(ban_message, stop_mass_mentions('\n'.join(ban_message_new)))
+                if message.content.startswith('`userinfo'):
+                    command = message.content.split(maxsplit=1)
+                    if len(command) >= 2:
+                        print('({1.hour:02d}:{1.minute:02d}){0.author.name} used `userinfo command'.format(message, datetime.now()))
+                        print('\"{0.author.name}:{0.content}\"'.format(message))
+                        if message.server.get_member(command[1]) or message.server.get_member_named(command[1]):
+                            if command[1].isdecimal():
+                                user = message.server.get_member(command[1])
+                            elif (command[1].strip('<>@')).isdecimal():
+                                user = message.server.get_member(command[1].strip('<>@'))
+                            else user = message.server.get_member_named(command[1])
+                            if message.server.get_member(command[1]):
+                                user = message.server.get_member(command[1])
+                            else:
+                                user = message.server.get_member_named(command[1])
+                            if not user:
+                            await client.send_message(client.get_channel(log_channel), 'User not found.\nUse `\`userinfo <id/mention/name>` to get info about user.')
+                            em = discord.Embed(title=':information_source: User info', colour=user.colour)
+                            em.set_author(name='User: @{0.name}#{0.discriminator} - {0.id}'.format(user))
+                            em.set_thumbnail(url=user.avatar_url)
+                            if user.nick:
+                                em.add_field(name='Nickname:', value=user.nick)
+                            em.add_field(name="User created on:", value=user.created_at.strftime("%d %b %Y %H:%M") + ' ({} days ago)'.format((message.timestamp - user.created_at).days))
+                            em.add_field(name="User joined on:", value=user.joined_at.strftime("%d %b %Y %H:%M") + ' ({} days ago)'.format((message.timestamp - user.joined_at).days))
+                            em.add_field(name="Roles:", value=", ".join([x.name for x in user.roles if x.name != "@everyone"]), inline=False)
+                            em.set_footer(text='{0} at UTC/GMT+0'.format(datetime.utcnow()))
+                            await client.send_message(client.get_channel(log_channel), embed=em)
+                if message.content.startswith('`serverinfo'):
+                    print('({1.hour:02d}:{1.minute:02d}){0.author.name} used `serverinfo command'.format(message, datetime.now()))
+                    print('\"{0.author.name}:{0.content}\"'.format(message))
+                    em = discord.Embed(title=':information_source: Server info', colour=0x80A0EE)
+                    em.set_author(name=message.server.name + ' - ' + message.server.id)
+                    em.set_thumbnail(url=message.server.icon_url)
+                    em.add_field(name='Members:', value=message.server.member_count)
+                    em.add_field(name='Owner:(temp)', value=message.author.mention)
+                    ver_levels = {'none':'None - No criteria set.',
+                                  'low':'Low - Member must have a verified email on their Discord account.',
+                                  'medium':'Medium - Member must have a verified email and be registered on Discord for more than five minutes.',
+                                  'high':'High - Member must have a verified email, be registered on Discord for more than five minutes, and be a member of the server itself for more than ten minutes.',
+                                  'table_flip':'High - Member must have a verified email, be registered on Discord for more than five minutes, and be a member of the server itself for more than ten minutes.'}
+                    em.add_field(name='Verification level:', value=ver_levels.get(message.server.verification_level), inline=False)
+                    em.add_field(name='Created on:', value=message.server.created_at.strftime("%d %b %Y %H:%M") + ' ({} days ago)'.format((message.timestamp - message.server.created_at).days))
+                    em.set_footer(text='{0} at UTC/GMT+0'.format(datetime.utcnow()))
+                    await client.send_message(client.get_channel(log_channel), embed=em)
+                            
     if message.server is not None:
         if message.server.id in authorized_servers:
             for i in banned_words:
@@ -249,6 +324,11 @@ async def on_message(message):
                 else:
                     print('({1.hour:02d}:{1.minute:02d}){0.author.nick}({0.author.name}) posted invite link in #{0.channel.name} at {0.server.name}.'.format(message, datetime.now()))
                     print('\"{0.author.nick}:{0.content}\"'.format(message))
+
+def stop_mass_mentions(text):
+    text = text.replace("@everyone", "@\u200beveryone")
+    text = text.replace("@here", "@\u200bhere")
+    return text
 	
 def loop_f():
     print('{0.hour:02d}:{0.minute:02d}\t-----------------------------------------------------------------------'.format(datetime.now()))
