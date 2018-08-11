@@ -2,12 +2,12 @@ import discord
 import os 
 from datetime import datetime
 from threading import Timer, Thread
-#from derpibooru import Search, sort
+from derpibooru import Search, sort
 import time
 import winsound
 import asyncio
 
-TOKEN = "" #Your token
+TOKEN = ""
 client = discord.Client()
 timers = [] #list of Timers for raid detection
 timers_q = [] #list of short Timers for raid detection
@@ -16,7 +16,7 @@ joined_users = [] #debug
 authorized_servers = ['87583189161226240', #EQD
                       '475881818755956736',#SCP
                       '280418753236172811']#ASS
-commands_channels = ['280418753236172811', #ASS #channel ID for `reason and `ponyr
+commands_channels = ['280418753236172811', #ASS #channel ID for `commands
                      '477269419765006345'] #SCP
 authorized_channels = ['280418753236172811']#ASS #ponyville and #manehattan IDs
 log_channel = '477236874948116481' #SCP #log output channel ID
@@ -129,6 +129,8 @@ async def on_member_ban(member):
         
 @client.event
 async def on_message_delete(message):
+    if not message.server.id:
+        return
     if message.server.id in authorized_servers:
         print('({1.hour:02d}:{1.minute:02d}){0.author.name}\'s message has been deleted from #{0.channel.name} at {0.server.name}.'.format(message, datetime.now()))
         print('\"{0.author.name}:{0.content}\"'.format(message))
@@ -151,6 +153,8 @@ async def on_message_delete(message):
 
 @client.event
 async def on_message_edit(before, after):
+    if not message.server.id:
+        return
     if (after.channel.id in log_channel) or after.author.bot:
         return
     if not before.embeds and after.embeds:
@@ -212,28 +216,26 @@ async def on_message(message):
                     if len(command) >= 2:
                         print('({1.hour:02d}:{1.minute:02d}){0.author.name} used `userinfo command'.format(message, datetime.now()))
                         print('\"{0.author.name}:{0.content}\"'.format(message))
-                        if message.server.get_member(command[1]) or message.server.get_member_named(command[1]):
-                            if command[1].isdecimal():
-                                user = message.server.get_member(command[1])
-                            elif (command[1].strip('<>@')).isdecimal():
-                                user = message.server.get_member(command[1].strip('<>@'))
-                            else user = message.server.get_member_named(command[1])
-                            if message.server.get_member(command[1]):
-                                user = message.server.get_member(command[1])
-                            else:
-                                user = message.server.get_member_named(command[1])
-                            if not user:
-                            await client.send_message(client.get_channel(log_channel), 'User not found.\nUse `\`userinfo <id/mention/name>` to get info about user.')
-                            em = discord.Embed(title=':information_source: User info', colour=user.colour)
-                            em.set_author(name='User: @{0.name}#{0.discriminator} - {0.id}'.format(user))
-                            em.set_thumbnail(url=user.avatar_url)
-                            if user.nick:
-                                em.add_field(name='Nickname:', value=user.nick)
-                            em.add_field(name="User created on:", value=user.created_at.strftime("%d %b %Y %H:%M") + ' ({} days ago)'.format((message.timestamp - user.created_at).days))
-                            em.add_field(name="User joined on:", value=user.joined_at.strftime("%d %b %Y %H:%M") + ' ({} days ago)'.format((message.timestamp - user.joined_at).days))
+                        if command[1].isdecimal():
+                            user = message.server.get_member(command[1])
+                        elif (command[1].strip('<>@!')).isdecimal():
+                            user = message.server.get_member(command[1].strip('<>@!'))
+                        else:
+                            user = message.server.get_member_named(command[1])
+                        if not user:
+                            await client.send_message(message.channel, 'User not found.\nUse \`userinfo <id/mention/name> to get info about user.')
+                            return
+                        em = discord.Embed(title=':information_source: User info', colour=user.colour)
+                        em.set_author(name='User: @{0.name}#{0.discriminator} - {0.id}'.format(user))
+                        em.set_thumbnail(url=user.avatar_url)
+                        if user.nick:
+                            em.add_field(name='Nickname:', value=user.nick)
+                        em.add_field(name="User created on:", value=user.created_at.strftime("%d %b %Y %H:%M") + ' ({} days ago)'.format((message.timestamp - user.created_at).days))
+                        em.add_field(name="User joined on:", value=user.joined_at.strftime("%d %b %Y %H:%M") + ' ({} days ago)'.format((message.timestamp - user.joined_at).days))
+                        if len(user.roles) > 1:
                             em.add_field(name="Roles:", value=", ".join([x.name for x in user.roles if x.name != "@everyone"]), inline=False)
-                            em.set_footer(text='{0} at UTC/GMT+0'.format(datetime.utcnow()))
-                            await client.send_message(client.get_channel(log_channel), embed=em)
+                        em.set_footer(text='{0} at UTC/GMT+0'.format(datetime.utcnow()))
+                        await client.send_message(message.channel, embed=em)
                 if message.content.startswith('`serverinfo'):
                     print('({1.hour:02d}:{1.minute:02d}){0.author.name} used `serverinfo command'.format(message, datetime.now()))
                     print('\"{0.author.name}:{0.content}\"'.format(message))
@@ -241,16 +243,16 @@ async def on_message(message):
                     em.set_author(name=message.server.name + ' - ' + message.server.id)
                     em.set_thumbnail(url=message.server.icon_url)
                     em.add_field(name='Members:', value=message.server.member_count)
-                    em.add_field(name='Owner:(temp)', value=message.author.mention)
+                    em.add_field(name='Owner:', value=message.server.owner.mention)
                     ver_levels = {'none':'None - No criteria set.',
                                   'low':'Low - Member must have a verified email on their Discord account.',
                                   'medium':'Medium - Member must have a verified email and be registered on Discord for more than five minutes.',
                                   'high':'High - Member must have a verified email, be registered on Discord for more than five minutes, and be a member of the server itself for more than ten minutes.',
                                   'table_flip':'High - Member must have a verified email, be registered on Discord for more than five minutes, and be a member of the server itself for more than ten minutes.'}
-                    em.add_field(name='Verification level:', value=ver_levels.get(message.server.verification_level), inline=False)
+                    em.add_field(name='Verification level:', value=ver_levels.get(message.server.verification_level, 'None - No criteria set.'), inline=False)
                     em.add_field(name='Created on:', value=message.server.created_at.strftime("%d %b %Y %H:%M") + ' ({} days ago)'.format((message.timestamp - message.server.created_at).days))
                     em.set_footer(text='{0} at UTC/GMT+0'.format(datetime.utcnow()))
-                    await client.send_message(client.get_channel(log_channel), embed=em)
+                    await client.send_message(message.channel, embed=em)
                             
     if message.server is not None:
         if message.server.id in authorized_servers:
