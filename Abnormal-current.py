@@ -5,7 +5,7 @@ from threading import Timer, Thread
 import time
 import asyncio
 
-TOKEN = "NDc3NjI1NTEwMjA2MzczOTE2.Dk-_sg.qASQEfD2lawe6UdKBp7zftBuGuw"
+TOKEN = ""
 client = discord.Client()
 timers = [] #list of Timers for raid detection
 timers_q = [] #list of short Timers for raid detection
