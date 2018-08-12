@@ -18,12 +18,16 @@ To stop it, issue a stop command by pressing `Ctrl+C` in the cmd window.
 
 - Message deletion
 - **Message edit**
+- **Message pins**
 - Image caching (discord's native)
 
 - Ban logging
 - Ban reason
 - Userinfo command
 - Serverinfo command
+
+- Derpibooru integration
+- EQD integration
 
 And only in console:
 - Use of banned words
@@ -32,8 +36,6 @@ And only in console:
 
 ## What we still need:
 - Image caching (saving on server?)
-- Derpibooru integration
-- EQD integration
 - Past names command
 
 - Music stuff
