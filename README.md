@@ -11,14 +11,14 @@ To stop it, issue a stop command by pressing `Ctrl+C` in the cmd window.
 ## What we have now:
 - User join
 - User leave
-- **Roles change**
+- Roles change
 - Name change
 - Nickname change
 - Avatar change
 
 - Message deletion
-- **Message edit**
-- **Message pins**
+- Message edit
+- Message pins
 - Image caching (discord's native)
 
 - Ban logging
@@ -28,6 +28,7 @@ To stop it, issue a stop command by pressing `Ctrl+C` in the cmd window.
 
 - Derpibooru integration
 - EQD integration
+- Reaction to mentions
 
 And only in console:
 - Use of banned words
@@ -35,7 +36,8 @@ And only in console:
 - Discord invites
 
 ## What we still need:
+- Audit log use
 - Image caching (saving on server?)
 - Past names command
-
+- Stream notifications
 - Music stuff
