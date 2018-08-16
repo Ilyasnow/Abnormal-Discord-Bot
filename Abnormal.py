@@ -38,26 +38,19 @@ undo_posts = dict()
 derpi_undo_posts = dict()
 
 #Server and channel ID lists
-authorized_servers = ['87583189161226240'] #EQD
-commands_channels = ['151834220841533440', #staff
-                     '303603185514184705'] #botdev #channels for commands
-log_channel = '315288534124855317' #log output channel ID
-ban_channel = '279779468204048414' #ban output channel ID
-eqd_feed_channel = '281947627292065793' #channel for eqd feed
-art_commands = ['277885163793285130', #art
-                '303603185514184705'] #botdev #channels for derpi commands
-meme_commands = ['151838944827277312', #meme
-                 '303603185514184705'] #botdev #channels for meme commands
-serious_channels = ['200070887091863553',   #staff action tracking
-                    '415610659821060097',   #blog action tracking
-                    '279779468204048414',   #ban log
-                    '315288534124855317',   #chat log
-                    '281947627292065793']   #eqd feed
+authorized_servers = [''] #servers for commands and logging
+commands_channels = [''] #channels for control commands
+log_channel = '' #log output channel ID
+ban_channel = '' #ban output channel ID
+eqd_feed_channel = '' #channel for eqd feed
+art_commands = [''] #channels for derpi commands
+meme_commands = [''] #channels for meme commands
+serious_channels = [''] #Fitler against commands being used
 
 #Bot quotes for different situations
-cooldown_quotes = ['Give it time...','Hold your horses!','Don\'t rush it']
-command_off_quotes = ['Sorry, I am not allowed to do that']
-mention_quotes = [':eyes:']
+cooldown_quotes = ['']
+command_off_quotes = ['']
+mention_quotes = ['']
 
 #Program begins
 print('Starting...')
