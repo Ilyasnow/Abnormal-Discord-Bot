@@ -10,7 +10,17 @@ import time
 import winsound
 import asyncio
 
-TOKEN = ""
+import cog_logger
+import cog_raidalert
+import cog_config
+import cog_commands
+
+cog_config.init()
+TOKEN = str(cog_config.read('CONFIG','token'))
+if not TOKEN or TOKEN == 'put_token_here':
+    print('Please put your token in config file')
+    quit()
+BOT = bool(cog_config.read('CONFIG','bot'))
 client = discord.Client()
 
 COMMAND_PREFIX = '`' #prefix used in `commands
@@ -34,23 +44,31 @@ DERPI_COOLDOWN = 0      #Cooldown in seconds for pony and ponyr commands
 
 meme_timer = None
 mention_timer = None
+derpi_timer = None
 undo_posts = dict()
 derpi_undo_posts = dict()
 
 #Server and channel ID lists
-authorized_servers = [''] #servers for commands and logging
-commands_channels = [''] #channels for control commands
-log_channel = '' #log output channel ID
-ban_channel = '' #ban output channel ID
-eqd_feed_channel = '' #channel for eqd feed
-art_commands = [''] #channels for derpi commands
-meme_commands = [''] #channels for meme commands
-serious_channels = [''] #Fitler against commands being used
+authorized_servers = ['87583189161226240'] #EQD
+commands_channels = ['151834220841533440', #staff
+                     '303603185514184705'] #botdev #channels for commands
+log_channel = '315288534124855317' #log output channel ID
+ban_channel = '279779468204048414' #ban output channel ID
+eqd_feed_channel = '281947627292065793' #channel for eqd feed
+art_commands = ['277885163793285130', #art
+                '303603185514184705'] #botdev #channels for derpi commands
+meme_commands = ['151838944827277312', #meme
+                 '303603185514184705'] #botdev #channels for meme commands
+serious_channels = ['200070887091863553',   #staff action tracking
+                    '415610659821060097',   #blog action tracking
+                    '279779468204048414',   #ban log
+                    '315288534124855317',   #chat log
+                    '281947627292065793']   #eqd feed
 
 #Bot quotes for different situations
-cooldown_quotes = ['']
-command_off_quotes = ['']
-mention_quotes = ['']
+cooldown_quotes = ['Give it time...','Hold your horses!','Don\'t rush it']
+command_off_quotes = ['Sorry, I am not allowed to do that']
+mention_quotes = [':eyes:']
 
 #Program begins
 print('Starting...')
@@ -81,6 +99,8 @@ async def on_member_join(member):
         em.set_footer(text='{0} at UTC/GMT+0'.format(datetime.utcnow()))
         await client.send_message(client.get_channel(log_channel), embed=em)
 
+        await cog_raidalert.on_join(client, member)
+
 @client.event
 async def on_member_remove(member):
     #Event for when user leaves the server
@@ -98,12 +118,14 @@ async def on_member_remove(member):
         em.set_footer(text='{0} at UTC/GMT+0'.format(datetime.utcnow()))
         await client.send_message(client.get_channel(log_channel), embed=em)
 
+        cog_raidalert.on_remove(member)
+
 @client.event
 async def on_member_update(member_before, member_after):
     #Event for when user updates something within their profile
     if True:
         if member_before.server.id in authorized_servers:
-            await client.request_offline_members(member_before.server)
+            #await client.request_offline_members(member_before.server)
             if member_after.avatar_url:#choosing avatar to display (user or default)
                 member_a_avatar_url = member_after.avatar_url
             else:
@@ -139,6 +161,8 @@ async def on_member_update(member_before, member_after):
                 em.colour=0x80A0EE
                 em.add_field(name='New name', value='{0} changed to {1}'.format(escape_code_line(member_before.name), escape_code_line(member_after.name)), inline=False)
                 await client.send_message(client.get_channel(log_channel), embed=em)
+
+                cog_config.write_name(member_after.id, member_after.name)
                 
             if member_before.avatar != member_after.avatar: #avatar change
                 print('({1.hour:02d}:{1.minute:02d}){0.name} has changed their avatar.'.format(member_before, datetime.now()))
@@ -154,6 +178,10 @@ async def on_member_update(member_before, member_after):
                 em.colour=0x80A0EE
                 em.add_field(name='New nickname', value='{0} changed to {1}'.format(escape_code_line(member_before.nick), escape_code_line(member_after.nick)), inline=False)
                 await client.send_message(client.get_channel(log_channel), embed=em)
+
+                if member_after.nick != None:
+                    cog_config.write_nick(member_after.id, member_after.nick)
+
 
 @client.event
 async def on_member_ban(member):
@@ -265,6 +293,8 @@ async def on_message(message):
             global undo_posts
             global derpi_undo_posts
             global meme_timer
+            global mention_timer
+            global derpi_timer
 
             if message.channel.id in meme_commands: #For commands in meme channel
                 if message.content.startswith(COMMAND_PREFIX):
@@ -392,6 +422,9 @@ async def on_message(message):
                 if message.content.startswith(COMMAND_PREFIX):
                     command = message.content.split(' ' , maxsplit=1)
 
+
+                    if command[0] == COMMAND_PREFIX+'names':
+                        await cog_commands.names(command, message, client)
                     
                     if command[0] == COMMAND_PREFIX+'togglemention': #Togglemention command. Enables/disables responce to a mention
                         MENTION_ENABLED = not MENTION_ENABLED
@@ -466,6 +499,7 @@ async def on_message(message):
                             return
                         reason_command = command[1].split(' ', maxsplit=1)
                         if len(reason_command) >= 2:
+                            ban_message = None
                             async for i in client.logs_from(client.get_channel(ban_channel)): #will fail if last valid ban log was >100 messages ago
                                 if (i.content is not None) and (len(i.content.split())>2):
                                     if (i.content.split()[1])[0] == '#':
@@ -536,7 +570,6 @@ async def on_message(message):
                         await client.send_message(message.channel, embed=em)
 
 
-            global mention_timer
             if message.server.me in message.mentions: #If someone mentions the bot
                 if not MENTION_ENABLED:
                     return
@@ -556,8 +589,14 @@ async def on_message(message):
 
 
 def stop_mass_mentions(text): #Puts invisible character after @ to escape mass pings
-    text = text.replace("@everyone", "@\u200beveryone")
-    text = text.replace("@here", "@\u200bhere")
+    if text:
+        text = text.replace("@everyone", "@\u200beveryone")
+        text = text.replace("@here", "@\u200bhere")
+    return text
+
+def escape_code_line(text):
+    if text:
+        text = text.replace("`", "\\`")
     return text
 
 last_posted_time = None
