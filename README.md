@@ -25,19 +25,14 @@ To stop it, issue a stop command by pressing `Ctrl+C` in the cmd window.
 - Ban reason
 - Userinfo command
 - Serverinfo command
+- Names command
 
 - Derpibooru integration
 - EQD integration
 - Reaction to mentions
 
-And only in console:
-- Use of banned words
-- Oversized images
-- Discord invites
-
 ## What we still need:
 - Audit log use
 - Image caching (saving on server?)
-- Past names command
 - Stream notifications
 - Music stuff
