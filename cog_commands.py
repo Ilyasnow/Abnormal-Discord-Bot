@@ -16,7 +16,7 @@ def nobigcode(text):
         text = text.replace("```", "`​`​`")
     return text
 
-async def names(command, message, client):
+async def names(client, message, command=None):
     if len(command) == 1:
         userinfo_command = message.author.id
     else:

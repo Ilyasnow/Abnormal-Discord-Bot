@@ -1,25 +1,27 @@
 import discord
 import os
 import feedparser
-from datetime import datetime
+from datetime import datetime, timedelta
 from threading import Timer, Thread
 from derpibooru import Search, sort
-#import urbandictionary as ud
+import urbandictionary as ud
 import random
 import time
-import winsound
 import asyncio
+import re
 
 import cog_logger
 import cog_raidalert
 import cog_config
 import cog_commands
+import cog_banning
+import cog_notifications
 
 cog_config.init()
 TOKEN = str(cog_config.read('CONFIG','token'))
 if not TOKEN or TOKEN == 'put_token_here':
     print('Please put your token in config file')
-    quit()
+    exit(0)
 BOT = bool(cog_config.read('CONFIG','bot'))
 client = discord.Client()
 
@@ -36,7 +38,7 @@ EQD_FEED_ENABLED = True
 DERPIBOORU_ENABLED = True
 ME_ENABLED = True
 MEME_ENABLED = True
-MENTION_ENABLED = False
+MENTION_ENABLED = True
 
 MEME_COOLDOWN = 30      #Cooldown in seconds for pmeme command
 MENTION_COOLDOWN = 300  #Cooldown in seconds between responces to a mention
@@ -45,13 +47,15 @@ DERPI_COOLDOWN = 0      #Cooldown in seconds for pony and ponyr commands
 meme_timer = None
 mention_timer = None
 derpi_timer = None
-undo_posts = dict()
-derpi_undo_posts = dict()
+undo_posts = []
+derpi_undo_posts = []
 
 #Server and channel ID lists
 authorized_servers = ['87583189161226240'] #EQD
 commands_channels = ['151834220841533440', #staff
                      '303603185514184705'] #botdev #channels for commands
+general_channels = ['87583189161226240', #ponyville
+                    '187665178303660032']#manehattan
 log_channel = '315288534124855317' #log output channel ID
 ban_channel = '279779468204048414' #ban output channel ID
 eqd_feed_channel = '281947627292065793' #channel for eqd feed
@@ -63,12 +67,18 @@ serious_channels = ['200070887091863553',   #staff action tracking
                     '415610659821060097',   #blog action tracking
                     '279779468204048414',   #ban log
                     '315288534124855317',   #chat log
-                    '281947627292065793']   #eqd feed
+                    '281947627292065793',   #eqd feed
+                    '484358854138658827',   #user tracking
+                    '319153432189599745']   #trial mod discussion
 
 #Bot quotes for different situations
 cooldown_quotes = ['Give it time...','Hold your horses!','Don\'t rush it']
-command_off_quotes = ['Sorry, I am not allowed to do that']
-mention_quotes = [':eyes:']
+command_off_quotes = ['Sorry, I am not allowed to do that',]
+mention_quotes = [':eyes:','Yes?','Who pinged me? :aaaaaaa:']
+ball8_quotes = ['Yes','No','Maybe','Perhaps','Indeed','Why not? :shrugsunset:','Of course not!','How dare you... :isee:','Of course!','I don\'t really know :think:','Eh :shrugsunset:',':pffft:']
+
+#List of common banned words
+banned_words = ['fag', 'nigg', 'milf', 'cunt', 'nibba']
 
 #Program begins
 print('Starting...')
@@ -185,18 +195,13 @@ async def on_member_update(member_before, member_after):
 
 @client.event
 async def on_member_ban(member):
-    #Event for when member is banned
     if member.server.id in authorized_servers:
-        print('({1.hour:02d}:{1.minute:02d}){0.name} has been banned from {0.server.name}.'.format(member, datetime.now()))
-        ban_number = 0
-        #finding last logged ban and getting its case
-        async for i in client.logs_from(client.get_channel(ban_channel)):
-            if (i.content is not None) and (len(i.content.split())>2):
-                if (i.content.split()[1])[0] == '#':
-                    ban_number = int(i.content.split()[1][1:-2])
-                    break
-        ban_message = '**Case #{1}** | Ban :hammer:\n**User:** {0.name}({0.id})\n**Moderator:** \\_\\_\\_\n**Reason**: Type \\`reason {1} <reason> to add a reason.'.format(member, ban_number+1)
-        await client.send_message(client.get_channel(ban_channel), stop_mass_mentions(ban_message))
+        await cog_banning.ban(client, member)
+
+@client.event
+async def on_member_unban(server, user):
+    if server.id in authorized_servers:
+        await cog_banning.unban(client, server, user)
         
 @client.event
 async def on_message_delete(message):
@@ -212,9 +217,14 @@ async def on_message_delete(message):
             member_avatar_url = message.author.default_avatar_url
         em = discord.Embed(title=':wastebasket:', description=message.author.mention, colour=0xFE8800)
         em.set_author(name='User: @{0.name}#{0.discriminator} - {0.id}'.format(message.author), icon_url=member_avatar_url)
-        em.add_field(name='Deleted message from #{0.channel.name}'.format(message), value=':page_facing_up: **Message:**\n{0.content}'.format(message), inline = False)
+        if message.timestamp < datetime.utcnow() - timedelta(seconds = 300):
+            del_msg = 'Deleted message from #{0.channel.name} from {1}'.format(message, message.timestamp.replace(microsecond=0))
+        else:
+            del_msg = 'Deleted message from #{0.channel.name}'.format(message)
+        em.add_field(name=del_msg, value=':page_facing_up: **Message:**\n{0.content}'.format(message), inline = False)
         attachments_text = ''
         first_attachment = ''
+        f_thumbnail = False
         #getting all attachments. Previewing only first
         if message.attachments:
             for attachment in message.attachments:
@@ -224,8 +234,17 @@ async def on_message_delete(message):
             if attachments_text:
                 em.add_field(name='Attachments:', value=attachments_text)
                 em.set_thumbnail(url=first_attachment.get('proxy_url'))
-        if message.embeds: #can't easly get embeds, so just logging if they were present
-            em.add_field(name='Embeds:', value=':white_check_mark:')
+                f_thumbnail = True
+        if message.embeds:
+            #em.add_field(name='Embeds:', value=':white_check_mark:')
+            n_embed = 1
+            for i in message.embeds:
+                if i.get('type') == 'image':
+                    em.add_field(name='Embed {}:'.format(n_embed), value=i.get('thumbnail').get('url'), inline = False)
+                    n_embed += 1
+                    if not f_thumbnail:
+                        em.set_thumbnail(url=i.get('thumbnail').get('proxy_url'))
+                        f_thumbnail = True
         em.set_footer(text='{0} at UTC/GMT+0'.format(datetime.utcnow()))
         await client.send_message(client.get_channel(log_channel), embed=em)
 
@@ -282,7 +301,22 @@ async def on_message_edit(before, after):
 @client.event
 async def on_message(message):
     #Event for when message gets recieved
-    if message.server is not None: #not DMs
+    if not message.server: #DMs
+        if message.author == client.user:
+            return
+        if message.content.startswith(COMMAND_PREFIX):
+            command = message.content.split(' ' , maxsplit=1)
+            
+            if command[0] == COMMAND_PREFIX+'mute':
+                await cog_notifications.mute(client, message)
+
+            if command[0] == COMMAND_PREFIX+'unmute':
+                await cog_notifications.unmute(client, message)
+        else:
+            print('({1.hour:02d}:{1.minute:02d}){0.author.name} send us a message in DM.'.format(message, datetime.now()))
+            print('\"{0.author.name}:{0.clean_content}\"'.format(message))
+            #await client.send_message(client.get_channel('303603185514184705'), '{0.author.name}(`{0.author.id}`) send me a message in DM. He said:\n"{0.clean_content}"'.format(message))
+    if message.server: #not DMs
         if message.server.id in authorized_servers:
             #Accessing global variables with ability to write
             global DERPIBOORU_ENABLED
@@ -300,17 +334,16 @@ async def on_message(message):
                 if message.content.startswith(COMMAND_PREFIX):
                     command = message.content.split(' ' , maxsplit=1)
 
-                    if command[0] == COMMAND_PREFIX+'undo':
+                    if command[0] == COMMAND_PREFIX+'undo': #Pmeme undo command. Deletes last pmeme message sender got
                         print('({1.hour:02d}:{1.minute:02d}) undo command by {0}'.format(message.author.name, datetime.now()))
-                        if  message.author in undo_posts.values():
-                            for msg, user in reversed([p for p in undo_posts.items()]):
-                                if user == message.author:
-                                    await client.delete_message(msg)
-                                    del undo_posts[msg]
-                                    return
-                        else:
-                            await client.send_message(message.channel, 'Nothing to undo for you, silly')
-                            print('nothing to undo')
+                        for msg, user in reversed(undo_posts):
+                            if user == message.author:
+                                await client.delete_message(msg)
+                                undo_posts.remove((msg, user))
+                                #print([i[1] for i in undo_posts])
+                                return
+                        await client.send_message(message.channel, 'Nothing to undo for you, silly')
+                        print('nothing to undo')
                             
                     if command[0] == COMMAND_PREFIX+'pmeme': #Pmeme command. Gets a random derpi image tagged "meme"
                         if not MEME_ENABLED:
@@ -330,31 +363,29 @@ async def on_message(message):
                             meme_timer.start()
                         for image in Search().sort_by(sort.RANDOM).query(meme_query).filter(DERPI_MEME_FILTER):
                             msg = await client.send_message(message.channel, image.url)
-                            undo_posts[msg] = message.author
-                            print([v.name for v in undo_posts.values()])
-                            if len(undo_posts) > 100:
-                                for k, v in undo_posts.items():
-                                    del undo_posts[k]
-                                    break
+                            undo_posts.append((msg, message.author))
+                            if len(undo_posts) > 10:
+                                undo_posts.pop(0)
+                            #print(undo_posts)
                             return
                         await client.send_message(message.channel, "I can't find anything")
+                        meme_timer.cancel()
                         print('nothing found')
             
             if message.channel.id in art_commands: #For commands in art channel
                 if message.content.startswith(COMMAND_PREFIX):
                     command = message.content.split(' ' , maxsplit=1)
 
-                    if command[0] == COMMAND_PREFIX+'undo':
+                    if command[0] == COMMAND_PREFIX+'undo': #pony undo command. Deletes last ponyr or pony message sender got
                         print('({1.hour:02d}:{1.minute:02d}) undo command by {0}'.format(message.author.name, datetime.now()))
-                        if  message.author in derpi_undo_posts.values():
-                            for msg, user in reversed([p for p in derpi_undo_posts.items()]):
-                                if user == message.author:
-                                    await client.delete_message(msg)
-                                    del derpi_undo_posts[msg]
-                                    return
-                        else:
-                            await client.send_message(message.channel, 'Nothing to undo for you, silly')
-                            print('nothing to undo')
+                        for msg, user in reversed(derpi_undo_posts):
+                            if user == message.author:
+                                await client.delete_message(msg)
+                                derpi_undo_posts.remove((msg, user))
+                                #print(derpi_undo_posts)
+                                return
+                        await client.send_message(message.channel, 'Nothing to undo for you, silly')
+                        print('nothing to undo')
             
                     if command[0] == COMMAND_PREFIX+'ponyr': #Ponyr command. Gets a random derpi image with or without user tags.
                         if not DERPIBOORU_ENABLED:
@@ -377,14 +408,13 @@ async def on_message(message):
                             derpi_timer.start()
                         for image in Search().sort_by(sort.RANDOM).query(derpi_query).filter(filter_id=derpi_filter):
                             msg = await client.send_message(message.channel, image.url)
-                            derpi_undo_posts[msg] = message.author
-                            print([v.name for v in derpi_undo_posts.values()])
-                            if len(derpi_undo_posts) > 100:
-                                for k, v in derpi_undo_posts.items():
-                                    del derpi_undo_posts[k]
-                                    break
+                            derpi_undo_posts.append((msg, message.author))
+                            if len(derpi_undo_posts) > 10:
+                                derpi_undo_posts.pop(0)
+                            #print(derpi_undo_posts)
                             return                        
                         await client.send_message(message.channel, "I can't find anything")
+                        derpi_timer.cancel()
                         print('nothing found')
                         
                     if command[0] == COMMAND_PREFIX+'pony': #Pony command. Gets newest derpi image with or without user tags.
@@ -408,14 +438,13 @@ async def on_message(message):
                             derpi_timer.start()
                         for image in Search().query(derpi_query).filter(filter_id=derpi_filter):
                             msg = await client.send_message(message.channel, image.url)
-                            derpi_undo_posts[msg] = message.author
-                            print([v.name for v in derpi_undo_posts.values()])
-                            if len(derpi_undo_posts) > 100:
-                                for k, v in derpi_undo_posts.items():
-                                    del derpi_undo_posts[k]
-                                    break
+                            derpi_undo_posts.append((msg, message.author))
+                            if len(derpi_undo_posts) > 10:
+                                derpi_undo_posts.pop(0)
+                            #print([v.name for v in derpi_undo_posts.values()])
                             return
                         await client.send_message(message.channel, "I can't find anything")
+                        derpi_timer.cancel()
                         print('nothing found')
             
             if message.channel.id in commands_channels: #For general (staff) commands. Preferably to add mod user filter
@@ -423,8 +452,20 @@ async def on_message(message):
                     command = message.content.split(' ' , maxsplit=1)
 
 
-                    if command[0] == COMMAND_PREFIX+'names':
-                        await cog_commands.names(command, message, client)
+                    if command[0] == COMMAND_PREFIX+'mute': #Mute command. Mutes sub notifications
+                        await cog_notifications.mute(client, message)
+
+                    if command[0] == COMMAND_PREFIX+'unmute': #Unmute command. Unmutes sub notifications
+                        await cog_notifications.unmute(client, message)
+
+                    if command[0] == COMMAND_PREFIX+'subscribe': #Subscribe command. Adds your id to the list of recievers of something.
+                        await cog_notifications.subscribe(client, message, command)
+
+                    if command[0] == COMMAND_PREFIX+'unsubscribe': #Unsubscribe command. Removes your id form the list of recievers of something.
+                        await cog_notifications.unsubscribe(client, message, command)
+                        
+                    if command[0] == COMMAND_PREFIX+'names': #Names command. Prints the last recorded 20 names and nicknames of a user.
+                        await cog_commands.names(client, message, command)
                     
                     if command[0] == COMMAND_PREFIX+'togglemention': #Togglemention command. Enables/disables responce to a mention
                         MENTION_ENABLED = not MENTION_ENABLED
@@ -456,7 +497,6 @@ async def on_message(message):
                             print('({1.hour:02d}:{1.minute:02d}) me command with args {0}'.format((message.clean_content.split(' ' , maxsplit=1))[1], datetime.now()))
                             me_channel_id = me_command[0].strip('<>#!')
                             if len(me_command) > 1 and me_channel_id.isdecimal() and client.get_channel(me_channel_id) and me_channel_id not in serious_channels:
-                                #clean_me_message = message.clean_content.split(' ', maxsplit=2)[2]
                                 try:
                                     await client.send_typing(client.get_channel(me_channel_id))
                                     await asyncio.sleep(min(len(me_command[1])*0.05*random.uniform(0.8,1.1), 6)) #"Typing..." length formula
@@ -480,43 +520,40 @@ async def on_message(message):
                         else:
                             await client.send_message(message.channel, 'EQD feed is now disabled')
 
-                    #if command[0] == COMMAND_PREFIX+'urban': #Urban command. Gets a urbandictionary description for the word given. Doesn't work for some reason. Probably obsolete lib
-                    #    if len(command) == 1:
-                    #        return
-                    #    print('({0.hour:02d}:{0.minute:02d}) Urban for word "{1}"'.format(datetime.now(), command[1]))
-                    #    defs = ud.define(command[1])
-                    #    em = discord.Embed(title=defs[0].word, description=defs[0].definition)
-                    #    em.add_field(name='Example', value=defs[0].example)
-                    #    em.set_footer(text='{0} at UTC/GMT+0'.format(datetime.utcnow()))
-                    #    await client.send_message(message.channel, em)
+                    if command[0] == COMMAND_PREFIX+'urban': #Urban command. Gets Urbandictionary definition for the word
+                        if len(command) == 1:
+                            return
+                        print('({0.hour:02d}:{0.minute:02d}){1.author.name} used urban for word "{2}"'.format(datetime.now(), message, command[1]))
+                        defs = ud.define(command[1])
+                        if not defs:
+                            print('Nothing found')
+                            await client.send_message(message.channel, 'Nothing found')
+                            return
+                        n = 0
+                        em = discord.Embed(title=defs[n].word, description=defs[n].definition.replace('[', '').replace(']', ''), colour=0x134FE6)
+                        em.add_field(name='Example:', value=defs[n].example.replace('[', '').replace(']', ''))
+                        em.set_footer(text='{0} at UTC/GMT+0'.format(datetime.utcnow()))
+                        await client.send_message(message.channel, embed=em)
+
+                    if command[0] == COMMAND_PREFIX+'urbanr': #UrbanR command. Gets random Urbandictionary word and its definition
+                        defs = ud.random()
+                        if not defs:
+                            print('Urbanr Nothing found')
+                            await client.send_message(message.channel, 'Nothing found')
+                            return
+                        n = 0
+                        print('({0.hour:02d}:{0.minute:02d}){1.author.name} used urbanr and got the word "{2}"'.format(datetime.now(), message, defs[n].word))
+                        em = discord.Embed(title=defs[n].word, description=defs[n].definition.replace('[', '').replace(']', ''), colour=0x134FE6)
+                        em.add_field(name='Example:', value=defs[n].example.replace('[', '').replace(']', ''))
+                        em.set_footer(text='{0} at UTC/GMT+0'.format(datetime.utcnow()))
+                        await client.send_message(message.channel, embed=em)
 
                     if command[0] == COMMAND_PREFIX+'ping': #Ping command. Simply replies with pong. Used to check if bot is alive
                         print('({0.hour:02d}:{0.minute:02d}) pong'.format(datetime.now()))
                         await client.send_message(message.channel, 'pong')
                         
                     if command[0] == COMMAND_PREFIX+'reason': #Reason command. Logs the ban in ban channel with given case and reason.
-                        if len(command) == 1:
-                            return
-                        reason_command = command[1].split(' ', maxsplit=1)
-                        if len(reason_command) >= 2:
-                            ban_message = None
-                            async for i in client.logs_from(client.get_channel(ban_channel)): #will fail if last valid ban log was >100 messages ago
-                                if (i.content is not None) and (len(i.content.split())>2):
-                                    if (i.content.split()[1])[0] == '#':
-                                        ban_number = int(i.content.split()[1][1:-2])
-                                        if int(reason_command[0]) == ban_number:
-                                            ban_message = i
-                                            break
-                            if not ban_message:
-                                await client.send_message(message.channel, 'No case {} found'.format(reason_command[0]))
-                                return
-                            ban_message_new = ban_message.content.split('\n')
-                            ban_message_new[2] = '**Moderator:** {0.name}({0.id})'.format(message.author)
-                            ban_message_new[3] = '**Reason:** {0}'.format(reason_command[1])
-                            print('({1.hour:02d}:{1.minute:02d}){0.author.name} has claimed the ban #{2}'.format(message, datetime.now(), ban_number))
-                            print('Case #{0}; Reason: {1}'.format(ban_number, reason_command[1]))
-                            await client.edit_message(ban_message, stop_mass_mentions('\n'.join(ban_message_new)))
-                            await client.send_message(message.channel, 'Case {} claimed'.format(reason_command[0]))
+                        await cog_banning.reason(client, message, command)
                             
                     if command[0] == COMMAND_PREFIX+'userinfo': #Userinfo command. Prints information about given user or sender, if no user given
                         if len(command) == 1:
@@ -582,11 +619,82 @@ async def on_message(message):
                     mention_timer.start()
 
                 rand = random.randint(5,15)
-                rand_q = random.choice(mention_quotes)
+                if '?' in message.content:
+                    rand_q = emojify(random.choice(ball8_quotes), message.server)
+                elif ':boop:' in message.content:
+                    rand_q = emojify(':boop:', message.server) + message.author.mention
+                    print(rand_q)
+                elif ':hugs:' in message.content:
+                    rand_q = emojify(':hugs:', message.server) + message.author.mention
+                else:
+                    rand_q = emojify(random.choice(mention_quotes), message.server)
                 print('And we answered in {0} sec with \"{1}\"'.format(rand, rand_q))
                 await asyncio.sleep(rand)
                 await client.send_message(message.channel, rand_q)
+                
+    if message.server:
+        if message.server.id in authorized_servers:
+            if message.channel.id not in serious_channels and message.channel.id != '151834220841533440': #staff
+                for i in banned_words:
+                    if i in message.content.lower():
+                        if message.author.nick is None:
+                            print('({1.hour:02d}:{1.minute:02d}){0.author.name} said banned word in #{0.channel.name} at {0.server.name}.'.format(message, datetime.now()))
+                            print('\"{0.author.name}:{0.content}\"'.format(message))
+                            dmsg = '{0.author.name}`({0.author.id})` said banned word in #{0.channel.name} at {0.server.name}.\n\"{0.author.name}:{0.content}\"'.format(message)
+                            await cog_notifications.dispatch(client, 'banned words', dmsg)
+                        else:
+                            print('({1.hour:02d}:{1.minute:02d}){0.author.nick}({0.author.name}) said banned word in #{0.channel.name} at {0.server.name}.'.format(message, datetime.now()))
+                            print('\"{0.author.nick}:{0.content}\"'.format(message))
+                            dmsg = '{0.author.nick}({0.author.name})`({0.author.id})` said banned word in #{0.channel.name} at {0.server.name}.\n\"{0.author.nick}:{0.content}\"'.format(message)
+                            await cog_notifications.dispatch(client, 'banned words', dmsg)
+                        break
+            
+            if message.channel.id in general_channels:
+                if message.attachments:
+                    for i in message.attachments:
+                        if i:
+                            try:
+                                if(i.get('width') is not None) and (i.get('height') > 128):
+                                    if i.get('width') > 400:
+                                        if (i.get('height')*0.75) < 128:
+                                            break
+                                    if message.author.nick is None:
+                                        dmsg = '{0.author.name}`({0.author.id})` posted a picture({1}x{2}) in #{0.channel.name} at {0.server.name}.'.format(message, i.get('width'),i.get('height'))
+                                        print('({0.hour:02d}:{0.minute:02d})'.format(datetime.now())+dmsg)
+                                        await cog_notifications.dispatch(client, 'oversized images', dmsg)
+                                    else:
+                                        dmsg = '{0.author.nick}({0.author.name})`({0.author.id})` posted a picture({1}x{2}) in #{0.channel.name} at {0.server.name}.'.format(message, i.get('width'),i.get('height'))
+                                        print('({0.hour:02d}:{0.minute:02d})'.format(datetime.now())+dmsg)
+                                        await cog_notifications.dispatch(client, 'oversized images', dmsg)
+                                    break
+                            except AttributeError:
+                                print('({1.hour:02d}:{1.minute:02d}){0.author.name} posted weird embed in #{0.channel.name} at {0.server.name}.'.format(message, datetime.now()))
+                                break
+                if message.embeds:
+                    for i in message.embeds:
+                        if i.get('type') == 'image':
+                            if(i.get('thumbnail').get('width')) and (i.get('thumbnail').get('height') > 128):
+                                if i.get('thumbnail').get('width') > 400:
+                                        if (i.get('thumbnail').get('height')*0.75) < 128:
+                                            break
+                                if message.author.nick is None:
+                                    dmsg = '{0.author.name}`({0.author.id})` posted a picture({1}x{2}) in #{0.channel.name} at {0.server.name}.'.format(message, i.get('thumbnail').get('width'),i.get('thumbnail').get('height'))
+                                    print('({0.hour:02d}:{0.minute:02d})'.format(datetime.now())+dmsg)
+                                    await cog_notifications.dispatch(client, 'oversized images', dmsg)
+                                else:
+                                    dmsg = '{0.author.nick}({0.author.name})`({0.author.id})` posted a picture({1}x{2}) in #{0.channel.name} at {0.server.name}.'.format(message, i.get('thumbnail').get('width'),i.get('thumbnail').get('height'))
+                                    print('({0.hour:02d}:{0.minute:02d})'.format(datetime.now())+dmsg)
+                                    await cog_notifications.dispatch(client, 'oversized images', dmsg)
+                                break
 
+def emojify(text, server):
+    sr = re.findall(':.*?:', text)
+    for temoji in sr:
+        for emoji in server.emojis:
+            if emoji.name == temoji.strip(':'):
+                text = text.replace(temoji, str(emoji))
+                break
+    return text
 
 def stop_mass_mentions(text): #Puts invisible character after @ to escape mass pings
     if text:
@@ -661,4 +769,4 @@ def run_client(client, *args, **kwargs): #Custom client.start shell to allow for
         print("Restart in 60 seconds.")
         time.sleep(60)
 
-run_client(client, TOKEN, bot=True) #True for real bot accounts, False for selfbots
+run_client(client, TOKEN, bot=BOT) #True for real bot accounts, False for selfbots

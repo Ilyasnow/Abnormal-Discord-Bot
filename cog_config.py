@@ -21,9 +21,13 @@ def write(section, key, value):
     config = configparser.ConfigParser(allow_no_value=True)
     f = io.open('Abnormal_mem.txt', 'r', encoding='utf16')
     config.read_file(f)
-    config[section][key] = value
+    if section in config:
+        config[section][key] = str(value)
+    else:
+        config[section] = {key:str(value)}
     f = io.open('Abnormal_mem.txt', 'w', encoding='utf16')
     config.write(f)
+    f.close()
 
 #Format names and write to memory
 def write_name(uid, name):
@@ -57,3 +61,12 @@ def read(section, key):
         if key in config[section]:
             return config[section][key]
     return ''
+
+def read_keys(section):
+    config = configparser.ConfigParser(allow_no_value=True)
+    config.read_file(io.open('Abnormal_mem.txt', 'r', encoding='utf16'))
+    if section in config:
+        return[key for key in config[section]]
+    return ''
+
+

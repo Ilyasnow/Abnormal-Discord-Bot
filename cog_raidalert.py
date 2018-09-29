@@ -2,6 +2,7 @@ import discord
 from threading import Timer
 import asyncio
 import random
+import cog_notifications
 
 raid_quotes = ['Raid! Maybe. Probably not.',
                'Suspicious people joining.',
@@ -25,17 +26,19 @@ async def on_join(client, member):
     timers_q[member] = Timer(30,empty_f_q,[member])
     timers[member].start()
     timers_q[member].start()
-    print('%%%debug%%% cog_raid_alert on_join()')
+    #print('%%%debug%%% cog_raid_alert on_join()')
     if len(timers_q) > 1:
         print('Raid alert! Raiders: {0}'.format(', '.join([i.name for i in list(timers_q.keys())])))
-        await client.send_message(client.get_channel('477269419765006345'), ':smiling_imp: '+random.choice(raid_quotes)+'\nPossible raiders: {0}'.format(', '.join([i.mention for i in list(timers_q.keys())])))
+        await client.send_message(client.get_channel('151834220841533440'), ':smiling_imp: '+random.choice(raid_quotes)+'\nPossible raiders: {0}'.format(', '.join([i.mention for i in list(timers_q.keys())])))
+        await cog_notifications.dispatch(client, 'raid alert', 'High probablitiy of raid in {}'.format(member.server.name))
     elif len(timers) > 2:
         print('Raid alert! Raiders: {0}'.format(', '.join([i.name for i in list(timers.keys())])))
-        await client.send_message(client.get_channel('477269419765006345'), ':smiling_imp: '+random.choice(raid_quotes)+'\nPossible raiders: {0}'.format(', '.join([i.mention for i in list(timers.keys())])))
+        await client.send_message(client.get_channel('151834220841533440'), ':smiling_imp: '+random.choice(raid_quotes)+'\nPossible raiders: {0}'.format(', '.join([i.mention for i in list(timers.keys())])))
+        await cog_notifications.dispatch(client, 'raid alert', 'High probablitiy of raid in {}'.format(member.server.name))
 
 #when someone leaves, stop their timer
 def on_remove(member):
-    print('%%%debug%%% cog_raid_alert on_remove()')
+    #print('%%%debug%%% cog_raid_alert on_remove()')
     if member in timers_q:
         timers_q[member].cancel()
         del timers_q[member]
